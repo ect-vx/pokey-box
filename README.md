@@ -23,12 +23,13 @@
 
 ## Структура каталогов
 
-```text
 pokey-box/
 ├── .gitignore       # Исключает локальные логи, временные файлы и секреты из репозитория
 ├── LICENSE          # Условия лицензирования проекта
 ├── README.md        # Общее описание проекта и документация
 └── soon...          # Будущие Dockerfile, файлы compose и конфигурации swarm
+
+---
 
 ## План разработки (Roadmap)
 
@@ -39,6 +40,8 @@ pokey-box/
     [ ] Настройка сетевого взаимодействия и постоянного хранения данных (volumes) внутри песочницы
 
     [ ] Интеграция с Docker Swarm: Шаблоны для масштабирования сервисов и тестирования оркестрации на нескольких узлах
+
+---
 
 ## Лицензия
 
@@ -80,12 +83,13 @@ A lightweight, minimal-friction sandbox environment based on Docker and containe
 
 ## Directory Structure
 
-```text
 pokey-box/
 ├── .gitignore       # Prevents local logs, temporary files, and secrets from escaping
 ├── LICENSE          # Project licensing terms
 ├── README.md        # Project overview and documentation
 └── soon...          # Upcoming Dockerfiles, compose setups, and swarm configurations
+
+---
 
 ## Roadmap
 
@@ -96,6 +100,8 @@ pokey-box/
     [ ] Networking and volume persistence best practices inside the sandbox
 
     [ ] Docker Swarm Integration: Blueprints for scaling services and testing multi-node orchestration
+
+---
 
 ## License
 
