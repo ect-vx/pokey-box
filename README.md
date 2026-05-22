@@ -23,23 +23,22 @@
 
 ## Структура каталогов
 
+```
 pokey-box/
 ├── .gitignore       # Исключает локальные логи, временные файлы и секреты из репозитория
 ├── LICENSE          # Условия лицензирования проекта
 ├── README.md        # Общее описание проекта и документация
 └── soon...          # Будущие Dockerfile, файлы compose и конфигурации swarm
+```
 
 ---
 
 ## План разработки (Roadmap)
 
-    [ ] Базовые шаблоны Dockerfile для основных сред выполнения
-
-    [ ] Готовые мультиконтейнерные сценарии с использованием Docker Compose
-
-    [ ] Настройка сетевого взаимодействия и постоянного хранения данных (volumes) внутри песочницы
-
-    [ ] Интеграция с Docker Swarm: Шаблоны для масштабирования сервисов и тестирования оркестрации на нескольких узлах
+- [ ] Базовые шаблоны Dockerfile для основных сред выполнения
+- [ ] Готовые мультиконтейнерные сценарии с использованием Docker Compose
+- [ ] Настройка сетевого взаимодействия и постоянного хранения данных (volumes) внутри песочницы
+- [ ] Интеграция с Docker Swarm: Шаблоны для масштабирования сервисов и тестирования оркестрации на нескольких узлах
 
 ---
 
@@ -83,23 +82,22 @@ A lightweight, minimal-friction sandbox environment based on Docker and containe
 
 ## Directory Structure
 
+```
 pokey-box/
 ├── .gitignore       # Prevents local logs, temporary files, and secrets from escaping
 ├── LICENSE          # Project licensing terms
 ├── README.md        # Project overview and documentation
 └── soon...          # Upcoming Dockerfiles, compose setups, and swarm configurations
+```
 
 ---
 
-## Roadmap
+## Development Roadmap
 
-    [ ] Core Dockerfile templates for basic runtimes
-
-    [ ] Multi-container recipes using Docker Compose
-
-    [ ] Networking and volume persistence best practices inside the sandbox
-
-    [ ] Docker Swarm Integration: Blueprints for scaling services and testing multi-node orchestration
+- [ ] Core Dockerfile templates for basic runtimes
+- [ ] Multi-container recipes using Docker Compose
+- [ ] Networking and volume persistence best practices inside the sandbox
+- [ ] Integration with Docker Swarm: Blueprints for scaling services and testing multi-node orchestration
 
 ---
 
