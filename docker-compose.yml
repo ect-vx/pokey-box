@@ -1,0 +1,83 @@
+# version: '3.8'
+
+services:
+
+  # Веб-интерфейс
+  webui:
+    build:
+      context: ./WebUI/
+      dockerfile: Dockerfile
+    container_name: pokey-webui
+    restart: always
+    ports:
+      - "80:80"
+    # volumes:
+    #   - .:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=redis://pokey-redis:6379/0
+      - POSTGRES_URL=postgresql://pokey_user:SecretPass@pokey-postgres:5432/pokey_db
+      - GUACD_HOST=pokey-guacd
+      - GUACD_PORT=4822
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_started
+      guacd:
+        condition: service_started
+    networks:
+      - pokey-net # bridge
+      # - host      # host
+
+  # redis
+  redis:
+    image: redis:7.2-alpine
+    container_name: pokey-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - pokey-net
+
+  # guacd
+  guacd:
+    image: guacamole/guacd:1.5.5
+    container_name: pokey-guacd
+    restart: always
+    networks:
+      - pokey-net
+
+  # postgresql
+  postgres:
+    image: postgres:16-alpine
+    container_name: pokey-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: pokey_db
+      POSTGRES_USER: pokey_user
+      POSTGRES_PASSWORD: SecretPass 
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - pokey-net
+
+# стабы хранилищ
+volumes:
+  redis_data:
+  pg_data:
+
+networks:
+  pokey-net:
+    name: pokey-net
+    driver: bridge
+  host:
+    name: host
+    driver: host
+
+    # Для swarm надо использовать следующий тип сети:
+    # driver: overlay

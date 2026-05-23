@@ -1,1 +1,6 @@
 ignore*
+.env
+WebUI/app/pyvenv.cfg
+WebUI/app/lib*
+WebUI/app/bin
+WebUI/app/include*
