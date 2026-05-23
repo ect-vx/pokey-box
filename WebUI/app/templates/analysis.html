@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Панель Анализа</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style>
+        /* Стиль для скрытия элементов, если чекбокс не активен */
+        .column-checkbox:not(:checked) { }
+    </style>
+</head>
+<body class="bg-gray-50 h-screen flex flex-col overflow-hidden">
+
+    <header class="bg-blue-600 text-white px-6 py-4 flex justify-between items-center shadow-md z-10">
+        <div class="flex items-center space-x-6">
+            <span class="text-xl font-bold tracking-wide">Security Dashboard</span>
+            <button onclick="toggleModal(true)" class="bg-white text-blue-600 hover:bg-blue-50 font-semibold px-4 py-1.5 rounded-lg transition shadow-sm cursor-pointer text-sm">
+                + New
+            </button>
+        </div>
+        
+        <a href="/logoff" class="bg-blue-700 hover:bg-blue-800 text-sm font-medium px-4 py-2 rounded-lg transition">
+            Выйти (Logoff)
+        </a>
+    </header>
+
+    <main class="flex-1 p-6 flex flex-col overflow-hidden max-w-7xl w-full mx-auto">
+        
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-semibold text-gray-800">Список процессов анализа</h2>
+            
+            <div class="relative inline-block text-left" id="columnDropdown">
+                <button onclick="toggleDropdown()" class="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg shadow-sm hover:bg-gray-50 text-sm font-medium inline-flex items-center cursor-pointer">
+                    Столбцы ⚙️
+                </button>
+                
+                <div id="dropdownMenu" class="hidden absolute right-0 mt-2 w-56 rounded-xl shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-20 p-2 space-y-1">
+                    <p class="text-xs font-semibold text-gray-400 px-3 py-1 uppercase">Видимые колонки</p>
+                    {% for key, name in all_columns.items() %}
+                    <label class="flex items-center space-x-3 px-3 py-2 hover:bg-gray-50 rounded-lg cursor-pointer text-sm text-gray-700">
+                        <input type="checkbox" id="chk-{{ key }}" 
+                               onchange="updateColumnVisibility('{{ key }}')"
+                               class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                               {% if key in default_enabled %}checked{% endif %}>
+                        <span>{{ name }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <div class="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 overflow-y-auto">
+            <table class="w-full text-left border-collapse min-w-max">
+                <thead class="bg-gray-100 sticky top-0 z-10 border-b border-gray-200">
+                    <tr>
+                        {% for key, name in all_columns.items() %}
+                        <th id="th-{{ key }}" class="col-{{ key }} px-6 py-3 text-sm font-semibold text-gray-600 {% if key not in default_enabled %}hidden{% endif %}">
+                            {{ name }}
+                        </th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                    {% for row in table_data %}
+                    <tr onclick="window.location.href='/analysis/{{ row.id }}/results'" 
+                        class="hover:bg-blue-50/50 cursor-pointer transition duration-150 group">
+                        
+                        {% for key in all_columns.keys() %}
+                        <td class="col-{{ key }} px-6 py-4 text-sm text-gray-700 group-hover:text-blue-900 {% if key not in default_enabled %}hidden{% endif %}">
+                            {% if key == 'status' %}
+                                <span class="px-2.5 py-1 rounded-full text-xs font-medium 
+                                    {% if row[key] == 'Завершено' %}bg-green-100 text-green-800
+                                    {% elif row[key] == 'В процессе' %}bg-yellow-100 text-yellow-800
+                                    {% else %}bg-red-100 text-red-800{% endif %}">
+                                    {{ row[key] }}
+                                </span>
+                            {% else %}
+                                {{ row[key] }}
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </main>
+
+    {% include "modal_new.html" %}
+
+    <script>
+        // Открытие/закрытие выпадающего списка колонок
+        function toggleDropdown() {
+            const menu = document.getElementById('dropdownMenu');
+            menu.classList.toggle('hidden');
+        }
+
+        // Скрытие/отображение колонок "на лету"
+        function updateColumnVisibility(colKey) {
+            const isChecked = document.getElementById(`chk-${colKey}`).checked;
+            const elements = document.querySelectorAll(`.col-${colKey}`);
+            const th = document.getElementById(`th-${colKey}`);
+            
+            elements.forEach(el => {
+                if (isChecked) {
+                    el.classList.remove('hidden');
+                } else {
+                    el.classList.add('hidden');
+                }
+            });
+        }
+
+        // Закрытие dropdown при клике мимо него
+        window.onclick = function(event) {
+            if (!event.target.matches('#columnDropdown button') && !event.target.closest('#dropdownMenu')) {
+                document.getElementById('dropdownMenu').classList.add('hidden');
+            }
+        }
+    </script>
+</body>
+</html>

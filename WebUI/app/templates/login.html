@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Вход в систему</title>
+    <!-- Tailwind для быстрой стилизации -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+</head>
+<body class="bg-gray-100 flex items-center justify-center h-screen">
+
+    <div class="bg-white p-8 rounded-xl shadow-md w-full max-w-md">
+        <h2 class="text-2xl font-bold text-gray-800 text-center mb-6">Авторизация</h2>
+
+        <!-- Блок отображения ошибки, если она пришла с бэкенда -->
+        {% if error %}
+        <div class="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg mb-4 text-sm text-center">
+            {{ error }}
+        </div>
+        {% endif %}
+
+        <!-- Форма отправляет POST запрос на /login -->
+        <form action="/login" method="POST" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">Логин</label>
+                <input type="text" name="username" required 
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none bg-gray-50 text-gray-800"
+                       placeholder="Введите логин">
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">Пароль</label>
+                <input type="password" name="password" required 
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none bg-gray-50 text-gray-800"
+                       placeholder="••••••••">
+            </div>
+
+            <button type="submit" 
+                    class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg transition duration-200 shadow-sm cursor-pointer">
+                Войти
+            </button>
+        </form>
+    </div>
+
+</body>
+</html>

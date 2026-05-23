@@ -1,0 +1,58 @@
+<div id="newAnalysisModal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+    
+    <div class="bg-white rounded-2xl shadow-xl border border-gray-100 w-full max-w-md p-6 relative">
+        <button onclick="toggleModal(false)" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600 cursor-pointer text-xl font-bold">&times;</button>
+        
+        <h3 class="text-xl font-bold text-gray-800 mb-4">Параметры запуска нового анализа</h3>
+        
+        <form action="/analysis/new" method="POST" class="space-y-4">
+            
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">Название задачи</label>
+                <input type="text" name="task_name" required placeholder="Например: Сканирование ноды VNC"
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none bg-gray-50 text-gray-800">
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">Тип сканирования / Сессии</label>
+                <select name="scan_type" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none bg-gray-50 text-gray-800">
+                    <option value="vnc_guac">Apache Guacamole (VNC Tunnel)</option>
+                    <option value="quick_port">Быстрый скан портов</option>
+                    <option value="full_audit">Полный аудит уязвимостей</option>
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">Окружение (Environment)</label>
+                <select name="environment" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none bg-gray-50 text-gray-800">
+                    <option value="production">Production-сеть</option>
+                    <option value="staging">Staging / Тестовый контур</option>
+                    <option value="isolated">Изолированная Лаборатория</option>
+                </select>
+            </div>
+
+            <div class="flex space-x-3 pt-2">
+                <button type="button" onclick="toggleModal(false)" 
+                        class="w-1/2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2 rounded-lg transition cursor-pointer">
+                    Отмена
+                </button>
+                <button type="submit" 
+                        class="w-1/2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded-lg transition shadow-sm cursor-pointer">
+                    Запустить
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    // Функция переключения видимости модального окна
+    function toggleModal(show) {
+        const modal = document.getElementById('newAnalysisModal');
+        if (show) {
+            modal.classList.remove('hidden');
+        } else {
+            modal.classList.add('hidden');
+        }
+    }
+</script>
