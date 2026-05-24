@@ -1,0 +1,11 @@
+[package]
+name = "pokey-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+redis = { version = "0.24", features = ["tokio-comp", "connection-manager"] }
+futures-util = "0.3"
+bollard = "*" 
+bollard-stubs = "1.41.0"

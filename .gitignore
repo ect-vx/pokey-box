@@ -4,3 +4,8 @@ WebUI/app/pyvenv.cfg
 WebUI/app/lib*
 WebUI/app/bin
 WebUI/app/include*
+*.pcap
+
+# Added by cargo
+
+*/target
