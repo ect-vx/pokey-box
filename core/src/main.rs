@@ -1,7 +1,7 @@
 use futures_util::StreamExt;
 use redis::AsyncCommands;
 use std::error::Error;
-use std::time::Duration;
+// use std::time::Duration;
 mod helpers;
 
 
@@ -9,7 +9,7 @@ mod helpers;
 #[tokio::main(flavor = "current_thread")] // Один поток ОС, асинхронный рантайм
 async fn main() -> Result<(), Box<dyn Error>> {
     let docker = bollard::Docker::connect_with_local_defaults()?;
-    let redis_client = redis::Client::open("redis://127.0.0.1/")?;
+    let redis_client: redis::Client = redis::Client::open("redis://127.0.0.1/")?;
 
     let mut pubsub = redis_client.get_async_pubsub().await?;
     pubsub.subscribe("to_core").await?;
