@@ -11,8 +11,8 @@ services:
     restart: always
     ports:
       - "80:80"
-    # volumes:
-    #   - .:/app
+    volumes:
+      - ./WebUI/app/.:/app
     environment:
       - PYTHONUNBUFFERED=1
       - REDIS_URL=redis://pokey-redis:6379/0

@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<style>
+    /* Насильно заставляем внутренний холст Guacamole заполнить весь блок */
+    #guac-display {
+        position: relative;
+    }
+    #guac-display > .guacamole-display {
+        width: 100% !important;
+        height: 100% !important;
+        position: absolute;
+        top: 0;
+        left: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    #guac-display canvas {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain; /* Сохраняет пропорции экрана виртуалки */
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+    }
+</style>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Управление анализом | pokey-box</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    
+    {% if analysis.status in [0, 2] %}
+    <meta http-equiv="refresh" content="5">
+    {% endif %}
+</head>
+<body class="bg-gray-900 text-gray-100 h-screen flex flex-col overflow-hidden font-sans">
+
+    <header class="bg-gray-800 border-b border-gray-700 px-6 py-4 flex justify-between items-center shadow-md">
+        <div class="flex items-center space-x-4">
+            <span class="text-xl font-bold tracking-wide text-blue-400">pokey-box <span class="text-xs text-gray-500">{{ version }}</span></span>
+            <span class="text-sm bg-gray-700 text-gray-300 px-3 py-1 rounded-md border border-gray-600">ID: {{ analysis.id }}</span>
+        </div>
+        <a href="/dashboard" class="bg-gray-700 hover:bg-gray-600 text-sm font-medium px-4 py-2 rounded-lg transition">
+            Вернуться в панель
+        </a>
+    </header>
+
+    <main class="flex-1 p-6 flex flex-col justify-center items-center overflow-hidden max-w-7xl w-full mx-auto">
+        
+        {% if analysis.status == 3 %}
+
+        <div id="guac-display" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; bg: #000; z-index: 9999; overflow: auto;">
+            <div id="guac-loader" style="color: #fff; padding: 20px;">Подключение к WebSocket...</div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/@cyolosecurity/guacamole-common-js@1.5.5-1/dist/guacamole-common.min.js"></script>
+
+        <script>
+            document.addEventListener("DOMContentLoaded", function () {
+                const token = "{{ analysis.token }}"; 
+                const displayContainer = document.getElementById('guac-display');
+
+                const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+                const wsUrl = `${protocol}//${window.location.host}/ws/tunnel`;
+
+                const tunnel = new Guacamole.WebSocketTunnel(wsUrl);
+                const client = new Guacamole.Client(tunnel);
+
+                // Как только пошла сессия — удаляем текст загрузки
+                client.onstatechange = function(state) {
+                    if (state === 3) { 
+                        const loader = document.getElementById('guac-loader');
+                        if (loader) loader.remove();
+                    }
+                };
+
+                // Добавляем чистый элемент дисплея
+                const element = client.getDisplay().getElement();
+                displayContainer.appendChild(element);
+
+                // Жестко задаем размеры прямо в guacd при старте (например, HD)
+                client.sendSize(1280, 720);
+
+                // Простейшая мышь без масштабирования координат
+                const mouse = new Guacamole.Mouse(element);
+                mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = function(mouseState) {
+                    client.sendMouseState(mouseState);
+                };
+
+                // Простейшая клава
+                const keyboard = new Guacamole.Keyboard(document);
+                keyboard.onkeydown = function (keysym) { client.sendKeyEvent(1, keysym); };
+                keyboard.onkeyup = function (keysym) { client.sendKeyEvent(0, keysym); };
+
+                // Коннект с чистым токеном
+                client.connect(`token=${encodeURIComponent(token)}`);
+            });
+        </script>
+
+
+
+
+
+
+        <!-- <div class="w-full h-full flex flex-col space-y-4">
+            <div class="flex justify-between items-center bg-gray-800 p-4 rounded-xl border border-gray-700">
+                <div>
+                    <h3 class="font-semibold text-white">Интерактивный анализ малвари [Статус 1]</h3>
+                    <p class="text-xs text-gray-400">Хэш образца: <span class="font-mono text-blue-300">{{ analysis.sample_hash }}</span></p>
+                </div>
+                <form action="/analysis/{{ analysis.id }}/stop" method="POST">
+                    <button type="submit" class="bg-red-600 hover:bg-red-700 text-white font-semibold px-5 py-2 rounded-xl transition shadow-md cursor-pointer text-sm">
+                        🛑 Завершить анализ
+                    </button>
+                </form>
+            </div>
+            
+            <div class="flex-1 bg-black rounded-xl border border-gray-700 relative overflow-hidden flex items-center justify-center">
+                <div id="guac-display" class="w-full h-full bg-gray-950 flex items-center justify-center">
+                    <div id="guac-loader" class="text-center text-gray-500 text-sm">
+                        <p class="mb-2">🔌 Подключение к WebSocket guacd...</p>
+                        <p class="text-xs font-mono bg-gray-900 p-2 rounded border border-gray-800 text-green-400">
+                            ws://{{ request.url.host }}/ws/tunnel?token=...
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+        <script>
+            document.addEventListener("DOMContentLoaded", function () {
+                // Получаем зашифрованный токен из FastAPI
+                const token = "{{ analysis.token }}"; 
+                
+                if (!token) {
+                    document.getElementById('guac-loader').innerHTML = '<p class="text-red-500">Ошибка: Токен соединения не найден</p>';
+                    return;
+                }
+
+                // 2. Строим правильный WSS/WS URL к твоему FastAPI эндпоинту
+                const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+                const wsUrl = `${protocol}//${window.location.host}/ws/tunnel`;
+                
+                // 3. Инициализируем туннель и клиента Guacamole
+                const tunnel = new Guacamole.WebSocketTunnel(wsUrl);
+                const client = new Guacamole.Client(tunnel);
+
+                const displayContainer = document.getElementById('guac-display');
+
+                // Когда соединение успешно пошло — убираем текст загрузки и крепим Canvas
+                client.onstatechange = function(state) {
+                    if (state === 3) { // STATE_CLIENT_RUNNING (активная сессия)
+                        const loader = document.getElementById('guac-loader');
+                        if (loader) loader.remove();
+                    }
+                };
+
+
+                
+
+                const element = client.getDisplay().getElement();
+                displayContainer.appendChild(element);
+
+                // СРАЗУ ЖЕ говорим бэкенду, какой у нас размер контейнера
+                client.sendSize(displayContainer.clientWidth, displayContainer.clientHeight);
+
+                // 4. Передача событий мыши
+                const mouse = new Guacamole.Mouse(element);
+                mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = function(mouseState) {
+                    // Важно: корректируем координаты мыши с учетом масштаба canvas
+                    const display = client.getDisplay();
+                    if (display.getWidth() > 0 && element.clientWidth > 0) {
+                        mouseState.x = mouseState.x * display.getWidth() / element.clientWidth;
+                        mouseState.y = mouseState.y * display.getHeight() / element.clientHeight;
+                    }
+                    client.sendMouseState(mouseState);
+                };
+
+                // 5. Передача клавиатуры (нажатие клавиш внутрь VNC)
+                const keyboard = new Guacamole.Keyboard(document);
+                keyboard.onkeydown = function (keysym) {
+                    client.sendKeyEvent(1, keysym);
+                };
+                keyboard.onkeyup = function (keysym) {
+                    client.sendKeyEvent(0, keysym);
+                };
+
+                // 6. Коннектимся
+                client.connect(`token=${encodeURIComponent(token)}`);
+
+                // Логика авто-подгона размера экрана при ресайзе окна
+                window.onresize = function() {
+                    client.sendSize(displayContainer.clientWidth, displayContainer.clientHeight);
+                };
+
+                // Корректно закрываем сессию, если пользователь ушел со страницы
+                window.onunload = function() {
+                    client.disconnect();
+                };
+            });
+        </script> -->
+
+        {% else  %}
+        {{ analysis.status }}
+        {% endif %}
+
+    </main>
+</body>
+</html>

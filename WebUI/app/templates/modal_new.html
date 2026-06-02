@@ -12,13 +12,14 @@
                 <input type="text" name="task_name" required placeholder="Например: Сканирование ноды VNC"
                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none bg-gray-50 text-gray-800">
             </div>
-
+            
+            <!-- TODO: Создать схему динамического выбора через шаблонизацию  -->
             <div>
                 <label class="block text-sm font-medium text-gray-600 mb-1">Тип сканирования / Сессии</label>
                 <select name="scan_type" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none bg-gray-50 text-gray-800">
-                    <option value="vnc_guac">Apache Guacamole (VNC Tunnel)</option>
-                    <option value="quick_port">Быстрый скан портов</option>
-                    <option value="full_audit">Полный аудит уязвимостей</option>
+                    <option value="0">default</option>
+                    <!-- <option value="quick_port">Быстрый скан портов</option>
+                    <option value="full_audit">Полный аудит уязвимостей</option> -->
                 </select>
             </div>
 
