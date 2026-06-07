@@ -1,134 +1,58 @@
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-use std::fmt;
-use uuid::Uuid;
+pub mod redis_client;
 
-/// Тип артефакта
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum ArtifactKind {
-    Url,
-    File,
+use clap::{Parser, Subcommand};
+
+#[derive(Parser, Debug)]
+#[command(
+    name = "sandbox-analyzer",
+    about = "Sandbox artifact analyzer — checks URLs and files against multiple threat intel sources",
+    version
+)]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Command,
 }
 
-impl fmt::Display for ArtifactKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ArtifactKind::Url => write!(f, "url"),
-            ArtifactKind::File => write!(f, "file"),
+#[derive(Subcommand, Debug)]
+pub enum Command {
+    /// Analyze all artifacts for a given job UUID
+    Analyze {
+        uuid: String,
+        #[arg(short, long, default_value = "8")]
+        concurrency: usize,
+        #[arg(short, long, default_value = "60")]
+        timeout: u64,
+        #[arg(short, long)]
+        verbose: bool,
+    },
+    /// Show all verdicts for a job UUID from PostgreSQL
+    Results { uuid: String },
+    /// Health check — ping Redis and PostgreSQL
+    Health,
+}
+
+#[derive(Debug, Clone)]
+pub struct Config {
+    pub redis_url: String,
+    pub database_url: String,
+    pub virustotal_api_key: Option<String>,
+    pub otx_api_key: Option<String>,
+    pub safe_browsing_api_key: Option<String>,
+    pub clamav_socket: String,
+    pub yara_rules_dir: String,
+}
+
+impl Config {
+    pub fn from_env() -> Self {
+        dotenvy::dotenv().ok();
+        Config {
+            redis_url:              std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://redis:6379".into()),
+            database_url:          std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://postgres:postgres@postgres:5432/sandbox".into()),
+            virustotal_api_key:    std::env::var("VIRUSTOTAL_API_KEY").ok(),
+            otx_api_key:           std::env::var("OTX_API_KEY").ok(),
+            safe_browsing_api_key: std::env::var("SAFE_BROWSING_API_KEY").ok(),
+            clamav_socket:         std::env::var("CLAMAV_SOCKET").unwrap_or_else(|_| "/var/run/clamav/clamd.ctl".into()),
+            yara_rules_dir:        std::env::var("YARA_RULES_DIR").unwrap_or_else(|_| "/app/yara-rules".into()),
         }
     }
-}
-
-/// Артефакт — ссылка или файл
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Artifact {
-    pub id: String,
-    pub kind: ArtifactKind,
-    pub value: String,
-    pub sha256: Option<String>,
-}
-
-/// Уровень угрозы
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-#[serde(rename_all = "UPPERCASE")]
-pub enum ThreatLevel {
-    Clean,
-    Suspicious,
-    Malicious,
-    Error,
-}
-
-impl fmt::Display for ThreatLevel {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ThreatLevel::Clean      => write!(f, "CLEAN"),
-            ThreatLevel::Suspicious => write!(f, "SUSPICIOUS"),
-            ThreatLevel::Malicious  => write!(f, "MALICIOUS"),
-            ThreatLevel::Error      => write!(f, "ERROR"),
-        }
-    }
-}
-
-/// Результат одного анализатора
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AnalyzerResult {
-    pub analyzer: String,
-    pub threat_level: ThreatLevel,
-    pub score: Option<f32>,
-    pub detections: Vec<String>,
-    pub raw: serde_json::Value,
-    pub error: Option<String>,
-}
-
-/// Итоговый вердикт по артефакту
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Verdict {
-    pub id: Uuid,
-    pub job_uuid: Uuid,
-    pub artifact_id: String,
-    pub artifact_kind: String,
-    pub artifact_value: String,
-    pub sha256: Option<String>,
-    pub threat_level: ThreatLevel,
-    pub total_score: f32,
-    pub analyzer_results: serde_json::Value,
-    pub summary: String,
-    pub created_at: DateTime<Utc>,
-}
-
-impl Verdict {
-    pub fn build(job_uuid: Uuid, artifact: &Artifact, results: Vec<AnalyzerResult>) -> Self {
-        let threat_level = results
-            .iter()
-            .filter(|r| r.threat_level != ThreatLevel::Error)
-            .map(|r| r.threat_level)
-            .max()
-            .unwrap_or(ThreatLevel::Clean);
-
-        let scores: Vec<f32> = results.iter().filter_map(|r| r.score).collect();
-        let total_score = if scores.is_empty() { 0.0 } else { scores.iter().sum::<f32>() / scores.len() as f32 };
-
-        let all_detections: Vec<String> = results.iter()
-            .flat_map(|r| r.detections.iter().map(|d| format!("[{}] {}", r.analyzer, d)))
-            .collect();
-
-        let errors: Vec<String> = results.iter()
-            .filter_map(|r| r.error.as_ref().map(|e| format!("[{}] ERR: {}", r.analyzer, e)))
-            .collect();
-
-        let summary = format!(
-            "artifact={} kind={} level={} score={:.2} detections=[{}] errors=[{}]",
-            artifact.id, artifact.kind, threat_level, total_score,
-            all_detections.join("; "), errors.join("; ")
-        );
-
-        Verdict {
-            id: Uuid::new_v4(),
-            job_uuid,
-            artifact_id: artifact.id.clone(),
-            artifact_kind: artifact.kind.to_string(),
-            artifact_value: artifact.value.clone(),
-            sha256: artifact.sha256.clone(),
-            threat_level,
-            total_score,
-            analyzer_results: serde_json::to_value(&results).unwrap_or_default(),
-            summary,
-            created_at: Utc::now(),
-        }
-    }
-}
-
-/// Строка из БД (без тяжёлого JSONB поля)
-pub struct VerdictRow {
-    pub id: Uuid,
-    pub job_uuid: Uuid,
-    pub artifact_id: String,
-    pub artifact_kind: String,
-    pub artifact_value: String,
-    pub sha256: Option<String>,
-    pub threat_level: String,
-    pub total_score: f32,
-    pub summary: String,
-    pub created_at: DateTime<Utc>,
 }

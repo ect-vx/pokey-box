@@ -1,134 +1,106 @@
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-use std::fmt;
-use uuid::Uuid;
+use crate::models::{Verdict, VerdictRow};
+use anyhow::Result;
+use sqlx::postgres::PgPoolOptions;
+use sqlx::{PgPool, Row};
+use tracing::info;
 
-/// Тип артефакта
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum ArtifactKind {
-    Url,
-    File,
+#[derive(Clone)]
+pub struct Database {
+    pool: PgPool,
 }
 
-impl fmt::Display for ArtifactKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ArtifactKind::Url => write!(f, "url"),
-            ArtifactKind::File => write!(f, "file"),
-        }
+impl Database {
+    pub async fn connect(database_url: &str) -> Result<Self> {
+        let pool = PgPoolOptions::new()
+            .max_connections(10)
+            .connect(database_url)
+            .await?;
+        Ok(Self { pool })
     }
-}
 
-/// Артефакт — ссылка или файл
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Artifact {
-    pub id: String,
-    pub kind: ArtifactKind,
-    pub value: String,
-    pub sha256: Option<String>,
-}
-
-/// Уровень угрозы
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-#[serde(rename_all = "UPPERCASE")]
-pub enum ThreatLevel {
-    Clean,
-    Suspicious,
-    Malicious,
-    Error,
-}
-
-impl fmt::Display for ThreatLevel {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ThreatLevel::Clean      => write!(f, "CLEAN"),
-            ThreatLevel::Suspicious => write!(f, "SUSPICIOUS"),
-            ThreatLevel::Malicious  => write!(f, "MALICIOUS"),
-            ThreatLevel::Error      => write!(f, "ERROR"),
-        }
+    pub async fn migrate(&self) -> Result<()> {
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS verdicts (
+                id               UUID        PRIMARY KEY,
+                job_uuid         UUID        NOT NULL,
+                artifact_id      TEXT        NOT NULL,
+                artifact_kind    TEXT        NOT NULL,
+                artifact_value   TEXT        NOT NULL,
+                sha256           TEXT,
+                threat_level     TEXT        NOT NULL,
+                total_score      REAL        NOT NULL DEFAULT 0.0,
+                analyzer_results JSONB       NOT NULL DEFAULT '[]',
+                summary          TEXT        NOT NULL,
+                created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS verdicts_job_uuid_idx  ON verdicts (job_uuid);
+            CREATE INDEX IF NOT EXISTS verdicts_threat_level_idx ON verdicts (threat_level);
+            CREATE INDEX IF NOT EXISTS verdicts_created_at_idx ON verdicts (created_at DESC);
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+        info!("Database schema ready");
+        Ok(())
     }
-}
 
-/// Результат одного анализатора
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AnalyzerResult {
-    pub analyzer: String,
-    pub threat_level: ThreatLevel,
-    pub score: Option<f32>,
-    pub detections: Vec<String>,
-    pub raw: serde_json::Value,
-    pub error: Option<String>,
-}
+    pub async fn upsert_verdict(&self, v: &Verdict) -> Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO verdicts
+                (id, job_uuid, artifact_id, artifact_kind, artifact_value, sha256,
+                 threat_level, total_score, analyzer_results, summary, created_at)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+            ON CONFLICT (id) DO UPDATE SET
+                threat_level     = EXCLUDED.threat_level,
+                total_score      = EXCLUDED.total_score,
+                analyzer_results = EXCLUDED.analyzer_results,
+                summary          = EXCLUDED.summary
+            "#,
+        )
+        .bind(v.id)
+        .bind(v.job_uuid)
+        .bind(&v.artifact_id)
+        .bind(&v.artifact_kind)
+        .bind(&v.artifact_value)
+        .bind(&v.sha256)
+        .bind(v.threat_level.to_string())
+        .bind(v.total_score)
+        .bind(&v.analyzer_results)
+        .bind(&v.summary)
+        .bind(v.created_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
 
-/// Итоговый вердикт по артефакту
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Verdict {
-    pub id: Uuid,
-    pub job_uuid: Uuid,
-    pub artifact_id: String,
-    pub artifact_kind: String,
-    pub artifact_value: String,
-    pub sha256: Option<String>,
-    pub threat_level: ThreatLevel,
-    pub total_score: f32,
-    pub analyzer_results: serde_json::Value,
-    pub summary: String,
-    pub created_at: DateTime<Utc>,
-}
+    pub async fn get_verdicts_for_job(&self, job_uuid: uuid::Uuid) -> Result<Vec<VerdictRow>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT id, job_uuid, artifact_id, artifact_kind, artifact_value,
+                   sha256, threat_level, total_score, summary, created_at
+            FROM verdicts WHERE job_uuid = $1 ORDER BY created_at
+            "#,
+        )
+        .bind(job_uuid)
+        .fetch_all(&self.pool)
+        .await?;
 
-impl Verdict {
-    pub fn build(job_uuid: Uuid, artifact: &Artifact, results: Vec<AnalyzerResult>) -> Self {
-        let threat_level = results
+        Ok(rows
             .iter()
-            .filter(|r| r.threat_level != ThreatLevel::Error)
-            .map(|r| r.threat_level)
-            .max()
-            .unwrap_or(ThreatLevel::Clean);
-
-        let scores: Vec<f32> = results.iter().filter_map(|r| r.score).collect();
-        let total_score = if scores.is_empty() { 0.0 } else { scores.iter().sum::<f32>() / scores.len() as f32 };
-
-        let all_detections: Vec<String> = results.iter()
-            .flat_map(|r| r.detections.iter().map(|d| format!("[{}] {}", r.analyzer, d)))
-            .collect();
-
-        let errors: Vec<String> = results.iter()
-            .filter_map(|r| r.error.as_ref().map(|e| format!("[{}] ERR: {}", r.analyzer, e)))
-            .collect();
-
-        let summary = format!(
-            "artifact={} kind={} level={} score={:.2} detections=[{}] errors=[{}]",
-            artifact.id, artifact.kind, threat_level, total_score,
-            all_detections.join("; "), errors.join("; ")
-        );
-
-        Verdict {
-            id: Uuid::new_v4(),
-            job_uuid,
-            artifact_id: artifact.id.clone(),
-            artifact_kind: artifact.kind.to_string(),
-            artifact_value: artifact.value.clone(),
-            sha256: artifact.sha256.clone(),
-            threat_level,
-            total_score,
-            analyzer_results: serde_json::to_value(&results).unwrap_or_default(),
-            summary,
-            created_at: Utc::now(),
-        }
+            .map(|r| VerdictRow {
+                id:             r.get("id"),
+                job_uuid:       r.get("job_uuid"),
+                artifact_id:    r.get("artifact_id"),
+                artifact_kind:  r.get("artifact_kind"),
+                artifact_value: r.get("artifact_value"),
+                sha256:         r.get("sha256"),
+                threat_level:   r.get("threat_level"),
+                total_score:    r.get("total_score"),
+                summary:        r.get("summary"),
+                created_at:     r.get("created_at"),
+            })
+            .collect())
     }
-}
-
-/// Строка из БД (без тяжёлого JSONB поля)
-pub struct VerdictRow {
-    pub id: Uuid,
-    pub job_uuid: Uuid,
-    pub artifact_id: String,
-    pub artifact_kind: String,
-    pub artifact_value: String,
-    pub sha256: Option<String>,
-    pub threat_level: String,
-    pub total_score: f32,
-    pub summary: String,
-    pub created_at: DateTime<Utc>,
 }
