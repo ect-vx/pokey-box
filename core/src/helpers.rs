@@ -21,8 +21,11 @@ const NET_BOX_TEMPLATE:  &str = "box_net_{}";
 const XORG_CONF_PATH: &str = "./sandbox_config/xorg.conf";
 const LOGS_PATH:      &str = "./logs";
 
-
-pub async fn init_box(uuid: String) {
+// initiates box with default config:
+// 1. box
+// 2. vnc (mgr)
+// 3. sniffer
+pub async fn init_box(uuid: &str) {
     let docker = Docker::connect_with_local_defaults().unwrap();
 
     let net_mgr  = NET_MGR_TEMPLATE.replace("{}", &uuid);

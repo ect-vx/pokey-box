@@ -1,0 +1,47 @@
+# version: '3.8'
+
+# compose for manual testing box
+
+services:
+  pokey-box:
+    image: pokey/box:0.0.1
+    container_name: pokey-box
+    restart: always
+    volumes:
+      - x11-socket:/tmp/.X11-unix
+    networks:
+      - box-isolated
+
+  pokey-manager:
+    image: pokey/manager:0.0.1
+    container_name: pokey-manager
+    restart: always
+    ports:
+      - "5900:5900"
+    volumes:
+      - x11-socket:/tmp/.X11-unix:rw
+    networks:
+      - box-guacd
+
+  pokey-gemini:
+    image: pokey/gemini:0.0.1
+    container_name: pokey-gemini
+    restart: always
+    network_mode: "container:pokey-box"
+    depends_on:
+      - pokey-box
+
+    volumes:
+      - /opt/pokey/artefacts/box/:/logs/
+
+volumes:
+  x11-socket:
+
+networks:
+  box-isolated:
+    driver: bridge
+  box-guacd:
+    driver: bridge
+
+
+

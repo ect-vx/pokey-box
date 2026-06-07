@@ -337,7 +337,7 @@ async def create_analysis(
     analysis_id = str(uuid.uuid4())
     analysis_data = {
         "scan_type":scan_type,
-        "status":0,
+        "status":1,
         "created_at":datetime.now(timezone.utc).isoformat()
         }
     await conn.execute(
@@ -392,7 +392,7 @@ async def analysis_results(
                 "connection": {
                     "type": "vnc",
                     "settings": {
-                        "hostname": "192.168.2.208",
+                        "hostname": "192.168.105.1",
                         "port": 5900,
                         "width": 1280,
                         "height": 720,

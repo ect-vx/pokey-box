@@ -40,61 +40,90 @@
             <span class="text-xl font-bold tracking-wide text-blue-400">pokey-box <span class="text-xs text-gray-500">{{ version }}</span></span>
             <span class="text-sm bg-gray-700 text-gray-300 px-3 py-1 rounded-md border border-gray-600">ID: {{ analysis.id }}</span>
         </div>
-        <a href="/dashboard" class="bg-gray-700 hover:bg-gray-600 text-sm font-medium px-4 py-2 rounded-lg transition">
-            Вернуться в панель
+        <a href="/analysis" class="bg-gray-700 hover:bg-gray-600 text-sm font-medium px-4 py-2 rounded-lg transition">
+            Вернуться
         </a>
     </header>
 
     <main class="flex-1 p-6 flex flex-col justify-center items-center overflow-hidden max-w-7xl w-full mx-auto">
         
         {% if analysis.status == 3 %}
-
-        <div id="guac-display" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; bg: #000; z-index: 9999; overflow: auto;">
-            <div id="guac-loader" style="color: #fff; padding: 20px;">Подключение к WebSocket...</div>
+        <div class="flex-1 relative w-full h-full overflow-hidden">
+            <div id="guac-display" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #0000; overflow: hidden;">
+                <div id="guac-loader" class="rounded-xl border border-gray-700 absolute inset-0 flex flex-col items-center justify-center text-center text-gray-500 text-sm bg-black/50 z-10">
+                    <p class="mb-2">🔌 Подключение к WebSocket guacd...</p>
+                    <p class="text-xs font-mono bg-gray-900 p-2 rounded border border-gray-800 text-green-400">ws://{{ request.url.host }}/ws/tunnel?token=...
+                        </p>
+                </div>
+            </div>
         </div>
-
         <script src="https://cdn.jsdelivr.net/npm/@cyolosecurity/guacamole-common-js@1.5.5-1/dist/guacamole-common.min.js"></script>
 
         <script>
             document.addEventListener("DOMContentLoaded", function () {
-                const token = "{{ analysis.token }}"; 
-                const displayContainer = document.getElementById('guac-display');
+            const token = "{{ analysis.token }}"; 
+            const displayContainer = document.getElementById('guac-display');
 
-                const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-                const wsUrl = `${protocol}//${window.location.host}/ws/tunnel`;
+            const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+            const wsUrl = `${protocol}//${window.location.host}/ws/tunnel`;
 
-                const tunnel = new Guacamole.WebSocketTunnel(wsUrl);
-                const client = new Guacamole.Client(tunnel);
+            const tunnel = new Guacamole.WebSocketTunnel(wsUrl);
+            const client = new Guacamole.Client(tunnel);
 
-                // Как только пошла сессия — удаляем текст загрузки
-                client.onstatechange = function(state) {
-                    if (state === 3) { 
-                        const loader = document.getElementById('guac-loader');
-                        if (loader) loader.remove();
-                    }
-                };
+            const element = client.getDisplay().getElement();   
+            displayContainer.appendChild(element);
+            const display = client.getDisplay();
 
-                // Добавляем чистый элемент дисплея
-                const element = client.getDisplay().getElement();
-                displayContainer.appendChild(element);
+            const BASE_WIDTH = 1280;
+            const BASE_HEIGHT = 800; 
+            client.sendSize(BASE_WIDTH, BASE_HEIGHT);
 
-                // Жестко задаем размеры прямо в guacd при старте (например, HD)
-                client.sendSize(1280, 720);
+            function resizeDisplay() {
+                const containerWidth = displayContainer.clientWidth;
+                const containerHeight = displayContainer.clientHeight;
 
-                // Простейшая мышь без масштабирования координат
-                const mouse = new Guacamole.Mouse(element);
-                mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = function(mouseState) {
-                    client.sendMouseState(mouseState);
-                };
+                if (containerWidth === 0 || containerHeight === 0) return;
 
-                // Простейшая клава
-                const keyboard = new Guacamole.Keyboard(document);
-                keyboard.onkeydown = function (keysym) { client.sendKeyEvent(1, keysym); };
-                keyboard.onkeyup = function (keysym) { client.sendKeyEvent(0, keysym); };
+                const scale = Math.min(
+                    containerWidth / BASE_WIDTH,
+                    containerHeight / BASE_HEIGHT
+                );
 
-                // Коннект с чистым токеном
-                client.connect(`token=${encodeURIComponent(token)}`);
-            });
+                display.scale(scale);
+
+                const realElement = display.getElement();
+                if (realElement) {
+                    const offsetLeft = Math.max(0, (containerWidth - BASE_WIDTH * scale) / 2);
+                    const offsetTop = Math.max(0, (containerHeight - BASE_HEIGHT * scale) / 2);
+                    
+                    realElement.style.position = 'absolute';
+                    realElement.style.left = `${offsetLeft}px`;
+                    realElement.style.top = `${offsetTop}px`;
+                }
+            }
+
+            window.addEventListener('resize', resizeDisplay);
+
+            client.onstatechange = function(state) {
+                if (state === 3) {
+                    const loader = document.getElementById('guac-loader');
+                    if (loader) loader.remove();
+                    
+                    setTimeout(resizeDisplay, 50);
+                }
+            };
+
+            const mouse = new Guacamole.Mouse(element);
+            mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = function(mouseState) {
+                client.sendMouseState(mouseState);
+            };
+
+            const keyboard = new Guacamole.Keyboard(document);
+            keyboard.onkeydown = function (keysym) { client.sendKeyEvent(1, keysym); };
+            keyboard.onkeyup = function (keysym) { client.sendKeyEvent(0, keysym); };
+
+            client.connect(`token=${encodeURIComponent(token)}`);
+        });
         </script>
 
 
@@ -130,7 +159,6 @@
 
         <script>
             document.addEventListener("DOMContentLoaded", function () {
-                // Получаем зашифрованный токен из FastAPI
                 const token = "{{ analysis.token }}"; 
                 
                 if (!token) {
@@ -138,11 +166,9 @@
                     return;
                 }
 
-                // 2. Строим правильный WSS/WS URL к твоему FastAPI эндпоинту
                 const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
                 const wsUrl = `${protocol}//${window.location.host}/ws/tunnel`;
                 
-                // 3. Инициализируем туннель и клиента Guacamole
                 const tunnel = new Guacamole.WebSocketTunnel(wsUrl);
                 const client = new Guacamole.Client(tunnel);
 
@@ -150,7 +176,7 @@
 
                 // Когда соединение успешно пошло — убираем текст загрузки и крепим Canvas
                 client.onstatechange = function(state) {
-                    if (state === 3) { // STATE_CLIENT_RUNNING (активная сессия)
+                    if (state === 3) { 
                         const loader = document.getElementById('guac-loader');
                         if (loader) loader.remove();
                     }
