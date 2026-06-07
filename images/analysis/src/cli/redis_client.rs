@@ -71,6 +71,6 @@ fn compute_file_sha256(path: &str) -> Option<String> {
 fn slug(s: &str) -> String {
     s.chars()
         .map(|c| if c.is_alphanumeric() || c == '.' || c == '-' { c } else { '_' })
-        .take(48)
+        .take(128)
         .collect()
 }

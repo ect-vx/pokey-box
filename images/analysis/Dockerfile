@@ -37,6 +37,7 @@ RUN apt-get update -o Acquire::ForceIPv4=true && apt-get install -y --no-install
     ca-certificates \
     libssl3 \
     curl \
+    netcat-openbsd \
     && apt-get install -y --no-install-recommends libyara10 2>/dev/null \
     || apt-get install -y --no-install-recommends libyara9 2>/dev/null || true \
     && rm -rf /var/lib/apt/lists/*

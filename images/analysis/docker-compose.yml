@@ -58,6 +58,7 @@ services:
     volumes:
       # Монтируем файлы для анализа (если нужно)
       - ./samples:/samples:ro
+      - clamav_data:/var/lib/clamav
     # Пример запуска: docker-compose run --rm analyzer analyze <uuid>
     entrypoint: ["/entrypoint.sh"]
     command: ["sandbox-analyzer", "--help"]
@@ -65,3 +66,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  clamav_data:

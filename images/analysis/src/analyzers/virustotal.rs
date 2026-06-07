@@ -109,7 +109,7 @@ impl VirusTotalAnalyzer {
     }
 
     fn parse_stats(&self, json: &Value) -> AnalyzerResult {
-        let stats = &json["data"]["attributes"]["stats"];
+        let stats = &json["data"]["attributes"]["last_analysis_stats"];
         let malicious = stats["malicious"].as_u64().unwrap_or(0);
         let suspicious = stats["suspicious"].as_u64().unwrap_or(0);
         let harmless = stats["harmless"].as_u64().unwrap_or(0) + stats["undetected"].as_u64().unwrap_or(0);
@@ -126,7 +126,7 @@ impl VirusTotalAnalyzer {
         };
 
         // Собираем имена угроз из results
-        let detections: Vec<String> = json["data"]["attributes"]["results"]
+        let detections: Vec<String> = json["data"]["attributes"]["last_analysis_results"]
             .as_object()
             .map(|engines| {
                 engines.values()

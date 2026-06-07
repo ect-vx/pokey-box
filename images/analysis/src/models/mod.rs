@@ -86,7 +86,10 @@ impl Verdict {
             .max()
             .unwrap_or(ThreatLevel::Clean);
 
-        let scores: Vec<f32> = results.iter().filter_map(|r| r.score).collect();
+        let scores: Vec<f32> = results.iter()
+            .filter(|r| r.threat_level != ThreatLevel::Error && r.threat_level != ThreatLevel::Clean)
+            .filter_map(|r| r.score)
+            .collect();
         let total_score = if scores.is_empty() { 0.0 } else { scores.iter().sum::<f32>() / scores.len() as f32 };
 
         let all_detections: Vec<String> = results.iter()

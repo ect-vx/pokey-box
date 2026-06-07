@@ -67,7 +67,8 @@ impl OtxAnalyzer {
 
         let (level, score) = match pulses {
             0 => (ThreatLevel::Clean, 0.0f32),
-            1..=3 => (ThreatLevel::Suspicious, 0.4),
+            1..=9 => (ThreatLevel::Suspicious, 0.3),
+            10..=49 => (ThreatLevel::Suspicious, 0.6),
             _ => (ThreatLevel::Malicious, 0.8),
         };
 
@@ -85,7 +86,8 @@ impl OtxAnalyzer {
                 let pulses = json["pulse_info"]["count"].as_u64().unwrap_or(0);
                 let (level, score) = match pulses {
                     0 => (ThreatLevel::Clean, 0.0f32),
-                    1..=3 => (ThreatLevel::Suspicious, 0.4),
+                    1..=9 => (ThreatLevel::Suspicious, 0.3),
+                    10..=49 => (ThreatLevel::Suspicious, 0.6),
                     _ => (ThreatLevel::Malicious, 0.8),
                 };
                 let detections = if pulses > 0 { vec![format!("otx_pulses={pulses}")] } else { vec![] };

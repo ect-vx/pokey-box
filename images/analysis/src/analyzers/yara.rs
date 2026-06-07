@@ -39,16 +39,20 @@ impl YaraAnalyzer {
 
             // Загружаем все .yar файлы из директории
             let mut compiler = compiler;
-            if let Ok(entries) = std::fs::read_dir(&rules_path) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().map(|e| e == "yar").unwrap_or(false) {
-                        if let Err(e) = compiler.add_rules_file(&path) {
-                            warn!(?path, "YARA rule load failed: {e}");
-                        }
-                    }
+if let Ok(entries) = std::fs::read_dir(&rules_path) {
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().map(|e| e == "yar").unwrap_or(false) {
+            compiler = match compiler.add_rules_file(&path) {
+                Ok(c) => c,
+                Err(e) => {
+                    warn!(?path, "YARA rule load failed: {e}");
+                    return (ThreatLevel::Error, vec![], json!({}), Some(format!("yara rule load: {e}")));
                 }
-            }
+            };
+        }
+    }
+}
 
             let rules = match compiler.compile_rules() {
                 Ok(r) => r,

@@ -19,35 +19,33 @@ impl Database {
     }
 
     pub async fn migrate(&self) -> Result<()> {
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS verdicts (
-                id               UUID        PRIMARY KEY,
-                job_uuid         UUID        NOT NULL,
-                artifact_id      TEXT        NOT NULL,
-                artifact_kind    TEXT        NOT NULL,
-                artifact_value   TEXT        NOT NULL,
-                sha256           TEXT,
-                threat_level     TEXT        NOT NULL,
-                total_score      REAL        NOT NULL DEFAULT 0.0,
-                analyzer_results JSONB       NOT NULL DEFAULT '[]',
-                summary          TEXT        NOT NULL,
-                created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
-            CREATE INDEX IF NOT EXISTS verdicts_job_uuid_idx  ON verdicts (job_uuid);
-            CREATE INDEX IF NOT EXISTS verdicts_threat_level_idx ON verdicts (threat_level);
-            CREATE INDEX IF NOT EXISTS verdicts_created_at_idx ON verdicts (created_at DESC);
-            "#,
-        )
-        .execute(&self.pool)
-        .await?;
+        sqlx::query(r#"CREATE TABLE IF NOT EXISTS verdicts (
+            id               UUID        PRIMARY KEY,
+            job_uuid         UUID        NOT NULL,
+            artifact_id      TEXT        NOT NULL,
+            artifact_kind    TEXT        NOT NULL,
+            artifact_value   TEXT        NOT NULL,
+            sha256           TEXT,
+            threat_level     TEXT        NOT NULL,
+            total_score      REAL        NOT NULL DEFAULT 0.0,
+            analyzer_results JSONB       NOT NULL DEFAULT '[]',
+            summary          TEXT        NOT NULL,
+            created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )"#).execute(&self.pool).await?;
+
+        sqlx::query("CREATE INDEX IF NOT EXISTS verdicts_job_uuid_idx ON verdicts (job_uuid)")
+            .execute(&self.pool).await?;
+        sqlx::query("CREATE INDEX IF NOT EXISTS verdicts_threat_level_idx ON verdicts (threat_level)")
+            .execute(&self.pool).await?;
+        sqlx::query("CREATE INDEX IF NOT EXISTS verdicts_created_at_idx ON verdicts (created_at DESC)")
+            .execute(&self.pool).await?;
+
         info!("Database schema ready");
         Ok(())
     }
 
     pub async fn upsert_verdict(&self, v: &Verdict) -> Result<()> {
-        sqlx::query(
-            r#"
+        sqlx::query(r#"
             INSERT INTO verdicts
                 (id, job_uuid, artifact_id, artifact_kind, artifact_value, sha256,
                  threat_level, total_score, analyzer_results, summary, created_at)
@@ -57,8 +55,7 @@ impl Database {
                 total_score      = EXCLUDED.total_score,
                 analyzer_results = EXCLUDED.analyzer_results,
                 summary          = EXCLUDED.summary
-            "#,
-        )
+        "#)
         .bind(v.id)
         .bind(v.job_uuid)
         .bind(&v.artifact_id)
@@ -76,13 +73,11 @@ impl Database {
     }
 
     pub async fn get_verdicts_for_job(&self, job_uuid: uuid::Uuid) -> Result<Vec<VerdictRow>> {
-        let rows = sqlx::query(
-            r#"
+        let rows = sqlx::query(r#"
             SELECT id, job_uuid, artifact_id, artifact_kind, artifact_value,
                    sha256, threat_level, total_score, summary, created_at
             FROM verdicts WHERE job_uuid = $1 ORDER BY created_at
-            "#,
-        )
+        "#)
         .bind(job_uuid)
         .fetch_all(&self.pool)
         .await?;
