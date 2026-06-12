@@ -7,12 +7,16 @@ services:
     build:
       context: ./WebUI/
       dockerfile: Dockerfile
+      args:
+        - USER_UID=${UID:-1000}
+        - USER_GID=${GID:-1000}
     container_name: pokey-webui
     restart: always
     ports:
       - "80:80"
     volumes:
       - ./WebUI/app/.:/app
+      - /opt/pokey/.:/opt/pokey
     environment:
       - PYTHONUNBUFFERED=1
       - REDIS_URL=redis://pokey-redis:6379/0
