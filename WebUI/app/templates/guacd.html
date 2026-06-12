@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Guac Fullscreen</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #0000;
+            /* Центрируем отмасштабированный контейнер в окне */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #guac-display {
+            /* Контейнер строго обжимает холст, который масштабирует JS */
+            display: inline-block;
+            width: max-content;
+            height: max-content;
+        }
+
+        #guac-display canvas {
+            display: block;
+        }
+    </style>
+    <!-- <style>
+        html, body {
+            margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000;
+        }
+        #guac-display {
+            width: 100%; height: 100%; position: absolute; top: 0; left: 0;
+        }
+    </style> -->
+</head>
+<body>
+    <div id="guac-display"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@cyolosecurity/guacamole-common-js@1.5.5-1/dist/guacamole-common.min.js"></script>
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            let scale_mouse = 1;
+            const token = "{{ analysis.token }}"; 
+            const displayContainer = document.getElementById('guac-display');
+
+            const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+            const wsUrl = `${protocol}//${window.location.host}/ws/tunnel`;
+
+            const tunnel = new Guacamole.WebSocketTunnel(wsUrl);
+            const client = new Guacamole.Client(tunnel);
+
+            const element = client.getDisplay().getElement();   
+            displayContainer.appendChild(element);
+            const display = client.getDisplay();
+
+            client.sendSize(window.innerWidth, window.innerHeight);
+
+            function resizeDisplay() {
+                const availableWidth = window.innerWidth;
+                const availableHeight = window.innerHeight;
+                if (availableWidth === 0 || availableHeight === 0) return;
+
+                
+                const scale = Math.min(
+                    availableWidth / display.getWidth(),
+                    availableHeight / display.getHeight()
+
+                    // displayContainer.clientWidth / display.getWidth(),
+                    // displayContainer.clientHeight / display.getHeight()
+                );
+                display.scale(scale);
+                scale_mouse = scale;
+            }
+
+            window.addEventListener('resize', resizeDisplay);
+
+            client.onstatechange = function(state) {
+                if (state === 3) {
+                    setTimeout(resizeDisplay, 50);
+                }
+            };
+
+            const mouse = new Guacamole.Mouse(element);
+            mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = function(mouseState) {
+                const scaledState = new Guacamole.Mouse.State(
+                    mouseState.x,
+                    mouseState.y,
+                    mouseState.left,
+                    mouseState.middle,
+                    mouseState.right,
+                    mouseState.up,
+                    mouseState.down
+                );
+
+                // Делим координаты клика в браузере на наши коэффициенты
+                scaledState.x = Math.round(mouseState.x / scale_mouse);
+                scaledState.y = Math.round(mouseState.y / scale_mouse);
+
+                client.sendMouseState(scaledState);
+            };
+
+            const keyboard = new Guacamole.Keyboard(document);
+            keyboard.onkeydown = function (keysym) { client.sendKeyEvent(1, keysym); };
+            keyboard.onkeyup = function (keysym) { client.sendKeyEvent(0, keysym); };
+
+            client.connect(`token=${encodeURIComponent(token)}`);
+        });
+    </script>
+</body>
+</html>

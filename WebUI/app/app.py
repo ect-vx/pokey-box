@@ -1,11 +1,11 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import os
-from typing import Annotated
+from typing import Annotated, Optional
 import bcrypt
 import uuid
-from datetime import datetime, timezone
 import json
+import shutil
 
 from guapy import create_server
 from guapy.guacd_client import GuacdClient
@@ -13,13 +13,15 @@ from guapy.client_connection import ClientConnection
 from guapy.models import ClientOptions, CryptConfig, GuacdOptions
 from guapy.crypto import GuacamoleCrypto
 
-from fastapi import FastAPI, Request, Form, Cookie, Depends, HTTPException, WebSocket, status
+from fastapi import FastAPI, Query, Request, Form, Cookie, Depends, HTTPException, WebSocket, status, File, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
+import redis
 import redis.asyncio as aioredis
 import asyncpg
+
 
 
 # TODO: работа с часовыми поясами через depends, а не захардкоженный UTC +7 
@@ -28,66 +30,130 @@ import asyncpg
 # TODO: разбить код логически по нескольким файлам
 
 
-# жизнь сессии в редисе = 3600 сек
-# жизнь анализа в редисе = 3600 сек - надо реализовать
+# TODO: жизнь сессии в редисе = 3600 сек
+# TODO: жизнь анализа в редисе = 3600 сек - надо реализовать
+
+BOX_START = 1
+BOX_PENDING = 2
+BOX_READY = 3
+BOX_STOPPING = 4
+BOX_STOPPED = 5
+ANALYSIS_STARTING = 6
+ANALYSIS_RUNNING = 7
+ANALYSIS_DONE = 8
+ANALYSIS_STOPPING = 9
+ANALYSIS_STOPPED = 10
+RESULTS_READY = 11
+ABORTED = 20
 
 load_dotenv()
 
+STATUS_MAPPING = {
+    BOX_START: ("Подготовка окружения", "Запускаем изолированную виртуальную коробку для проведения безопасного анализа.", "blue"),
+    BOX_PENDING: ("Подготовка окружения", "Запускаем изолированную виртуальную коробку для проведения безопасного анализа.", "blue"),
+    BOX_READY: ("Коробка готова", "Окружение запущено, доступен интерактивный режим.", "green"),
+    BOX_STOPPING: ("Остановка коробки", "Инициирован останов виртуального окружения.", "red"),
+    BOX_STOPPED: ("Коробка остановлена", "Виртуальное окружение успешно выключено.", "red"),
+    ANALYSIS_STARTING: ("Запуск анализа", "Передаем собранные дампы и файлы в коробку анализа паттернов.", "amber"),
+    ANALYSIS_RUNNING: ("Анализ", "Сканируем память, проверяем сигнатуры и извлекаем сетевые активности.", "green"),
+    ANALYSIS_DONE: ("Анализ завершен", "Основные этапы анализа выполнены, подготавливаем данные.", "green"),
+    ANALYSIS_STOPPING: ("Остановка процесса", "Завершаем работу контейнеров и сохраняем промежуточные логи.", "red"),
+    ANALYSIS_STOPPED: ("Остановка процесса", "Завершаем работу контейнеров и сохраняем промежуточные логи.", "red"),
+    RESULTS_READY: ("Результаты готовы", "Все данные успешно обработаны и сохранены.", "indigo"),
+    ABORTED: ("Анализ прерван", "Процесс был принудительно остановлен оператором или системой.", "red"),
+}
 SECRET_GUACD = "my_super_secret_key_32_bytes12!!"
 crypto = GuacamoleCrypto(cipher_name="AES-256-CBC", key=SECRET_GUACD)
 GUACD_OPTIONS = GuacdOptions(host="pokey-guacd", port=4822)
+UPLOAD_DIR = "/opt/pokey/boxes/{}/upload/"
+
+
+TO_CORE_PUBSUB = "to_core"
 
 MAX_RETRIES = 10
 RETRY_DELAY = 3
 INIT_DB_SCRIPT = """
+-- users
 CREATE TABLE IF NOT EXISTS users (
-    id SERIAL PRIMARY KEY,
-    username VARCHAR(50) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL
+    id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL
 );
 
+-- analyses
 CREATE TABLE IF NOT EXISTS analyses (
     id UUID PRIMARY KEY,
-    sample_hash VARCHAR(64),
-    scan_type SMALLINT,
-    status SMALLINT DEFAULT 0,
-    verdict VARCHAR(50) DEFAULT 'Unknown',
-    created_at VARCHAR(64) DEFAULT ''
+    object TEXT NOT NULL,
+    type TEXT NOT NULL,
+    time_start TIMESTAMPTZ,
+    time_ends TIMESTAMPTZ,
+    reason_stop TEXT,
+    status SMALLINT NOT NULL,
+    chosen_environment TEXT NOT NULL,
+    initiator_id INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT
 );
 
+-- artefacts
 CREATE TABLE IF NOT EXISTS artifacts (
-    id BIGSERIAL PRIMARY KEY,
-    analysis_id UUID,
-    artifact_key VARCHAR(255),
-    path TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    id UUID PRIMARY KEY,
+    analysis_id UUID NOT NULL REFERENCES analyses(id) ON DELETE CASCADE,
+    parent_id UUID REFERENCES artifacts(id) ON DELETE CASCADE,
+    object TEXT NOT NULL,
+    type TEXT NOT NULL,
+    hash TEXT,
+    verdict TEXT,
+    verdict_score SMALLINT
 );
 """
 
+# CREATE TABLE IF NOT EXISTS analyses (
+#     id UUID PRIMARY KEY,
+#     sample_hash VARCHAR(64),
+#     scan_type SMALLINT,
+#     status SMALLINT DEFAULT 0,
+#     verdict VARCHAR(50) DEFAULT 'Unknown',
+#     created_at VARCHAR(64) DEFAULT ''
+# );
+
+# CREATE TABLE IF NOT EXISTS artifacts (
+#     id BIGSERIAL PRIMARY KEY,
+#     analysis_id UUID,
+#     artifact_key VARCHAR(255),
+#     path TEXT,
+#     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+# );
+# """
+
 # INSERT INTO analyses (id, status, environment_id, created_at) VALUES ($1, $2, $3, $4)
 # analyses
-#        +----------------+--------------------------+
-#        | ПОЛЕ           | ТИП ДАННЫХ               |
-#        +----------------+--------------------------+
-#   PK --| id             | UUID                     | <---+
-#    ? --| sample_hash    | VARCHAR(64)              |     |
-#        | scan_type      | SMALLINT                 |     |
-#        | status         | SMALLINT                 |     | Связь по UUID
-#        | verdict        | VARCHAR(50)              |     |
-#        | created_at     | TIMESTAMP WITH TIME ZONE |     |
-#        +----------------+--------------------------+     |
-#                                                          |
-#                                                          |
-#        analysis_artifacts                                |
-#        +----------------+--------------------------+     |
-#        | ПОЛЕ           | ТИП ДАННЫХ               |     |
-#        +----------------+--------------------------+     |
-#   PK --| id             | BIGSERIAL                |     |
-#        | analysis_id    | UUID                     | ----+
-#        | artifact_key   | VARCHAR(255)             |
-#        | path           | TEXT                     |
-#        | created_at     | TIMESTAMP WITH TIME ZONE |
-#        +----------------+--------------------------+
+#        +-----------------------+--------------------------+
+#        | ПОЛЕ                  | ТИП ДАННЫХ               |
+#        +-----------------------+--------------------------+
+#   PK --| id                    | UUID / BIGSERIAL         | <---+
+#        | object                | TEXT                     |     |
+#        | type                  | TEXT (CHECK: file|link)  |     |
+#        | time_start            | TIMESTAMP WITH TIME ZONE |     |
+#        | time_ends             | TIMESTAMP WITH TIME ZONE |     | Связь по ID анализа
+#        | reason_stop           | TEXT (CHECK: прерывания) |     |
+#        | status                | SMALLINT (CHECK: 0-20)   |     |
+#        | chosen_environment    | TEXT                     |     |
+#   FK --| initiator_id          | INTEGER (users.id)       |     |
+#        | general_verdict_score | SMALLINT (CHECK: 0-9)    |     |
+#        +-----------------------+--------------------------+     |
+#                                                                 |
+#                                                                 |
+#        artifacts                                                |
+#        +-----------------------+--------------------------+     |
+#        | ПОЛЕ                  | ТИП ДАННЫХ               |     |
+#        +-----------------------+--------------------------+     |
+#   PK --| id                    | BIGSERIAL                |     |
+#   FK --| analysis_id           | UUID / BIGSERIAL         | ----+
+#        | object                | TEXT                     |
+#        | type                  | TEXT (CHECK: file|link)  |
+#        | hash                  | TEXT (CHECK: длина 64)   |
+#        | verdict               | TEXT                     |
+#        | verdict_score         | SMALLINT (CHECK: 0-9)    |
+#        +-----------------------+--------------------------+
 # await conn.execute("INSERT INTO users (username, password_hash) VALUES ($1, $2)", "1", hash_password("1"))
 
 
@@ -127,7 +193,14 @@ async def verify_session(
         
     return session_id
 
-
+async def get_user_id(
+    session_id,
+    ):
+    redis = get_redis()
+    user_id = await redis.hget(f"session:{session_id}", "id")
+    
+    return user_id
+    
 
 # return RedirectResponse(url="/login?error=Неверный+логин+или+пароль", status_code=303)
 
@@ -229,7 +302,7 @@ ALL_COLUMNS = {
 # Колонки, которые видны по умолчанию
 DEFAULT_ENABLED = ["id", "name", "status", "target", "date"]
 
-# Хордкордные данные для теста (в реале тут будет база данных)
+# Хордкордные данные УЗ для теста
 DUMMY_USERNAME = "1"
 DUMMY_PASSWORD = "1"
 
@@ -328,34 +401,96 @@ async def analysis_page(request: Request, session_id: Annotated[str, Depends(ver
 async def create_analysis(
     session_id: Annotated[str, Depends(verify_session)],
     # task_name: str = Form(...),
-    scan_type: int = Form(...),
+    scan_type: str = Form(...),
+    object: str = Form(...),
     # environment: str = Form(...),
     redis: aioredis.Redis = Depends(get_redis),
-    conn = Depends(get_postgres)
+    conn = Depends(get_postgres),
+    link_url: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None)
     ):
-    
     analysis_id = str(uuid.uuid4())
-    analysis_data = {
-        "scan_type":scan_type,
-        "status":1,
-        "created_at":datetime.now(timezone.utc).isoformat()
-        }
-    await conn.execute(
-        """
-        INSERT INTO analyses (id, status, scan_type, created_at) 
-        VALUES ($1, $2, $3, $4);
-        """, analysis_id, analysis_data["status"], analysis_data["scan_type"], analysis_data["created_at"]
-    )
+    task_name = "delete this value"
 
-    redis_key = f"analysis:{analysis_id}"
-    await redis.hset(name=redis_key, mapping=analysis_data)
+    if object == "link":
+        if not link_url:
+            raise HTTPException(status_code=400, detail="Вы выбрали тип 'Ссылка', но не указали URL")
+        
+        # TODO: логика обработки ссылки
+        user_id = await get_user_id(session_id)
+        data = {
+            "id": analysis_id,
+            "object": link_url,
+            "type": object,
+            "time_start": str(datetime.now(timezone(timedelta(hours=10)))),
+            "status": BOX_START,
+            "environment": "box-web",
+            "initiator_id": user_id
+        }
+
+        redis_key = f"analysis:{analysis_id}"
+        directory = UPLOAD_DIR.replace("{}", analysis_id)
+
+        os.makedirs(directory, exist_ok=True)
+
+        try:
+            os.chown(directory, 1000, 1000)
+        except PermissionError:
+            print("Ошибка: Недостаточно прав для выполнения chown на папку")
+
+        file_path = os.path.join(directory, "link.txt")
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(f"{link_url}\n")
+
+        try:
+            os.chown(file_path, 1000, 1000)
+            print("chown 1000:1000 done")
+        except PermissionError:
+            print("Ошибка: Недостаточно прав для выполнения chown на файл")
+
+        await redis.hset(redis_key, mapping=data)
+        await redis.expire(redis_key, 3600)
+
+        await redis.publish("to_core", analysis_id)
+
+
+        print(f"Запущена задача '{task_name}' (Тип: {scan_type}) для ссылки: {link_url}")
+        
+    elif object == "file":
+        # Проверяем, пришел ли файл и не пустой ли он
+        if not file or file.filename == "":
+            raise HTTPException(status_code=400, detail="Вы выбрали тип 'Файл', но не загрузили его")
+        
+        file_path = os.path.join(UPLOAD_DIR, analysis_id + "_" + file.filename)
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        # TODO: логика обработки файла
+        print(f"Запущена задача '{task_name}' (Тип: {scan_type}) с файлом: {file_path}")
+    
+    else:
+        raise HTTPException(status_code=400, detail="Неверный тип объекта")
+    
+    # analysis_data = {
+    #     "scan_type":scan_type,
+    #     "status":1,
+    #     "created_at":datetime.now(timezone.utc).isoformat()
+    #     }
+    # await conn.execute(
+    #     """
+    #     INSERT INTO analyses (id, status, scan_type, created_at) 
+    #     VALUES ($1, $2, $3, $4);
+    #     """, analysis_id, analysis_data["status"], 0, analysis_data["created_at"]
+    # )
+
+    # redis_key = f"analysis:{analysis_id}"
+    # await redis.hset(name=redis_key, mapping=analysis_data)
 
     # print(f"Запуск нового анализа: {task_name} ({scan_type}) в среде {environment}")
     
     # TODO: Создать схему динамического выбора коробки через шаблонизацию
     # TODO: Ассинхронная передача в коробку анализа (сразу передавать то, что находится)
     return RedirectResponse(url=f"/analysis/{analysis_id}", status_code=303)
-
 
 
 # TODO: использовать AJAX
@@ -378,82 +513,105 @@ async def analysis_results(
         )
         status: int = row[0]
 
-    status = 3
-    current_status = status
+    status = int(status)
 
-    match status:
-        case 1 | 2 :        # init_box
-            # TODO: загрузка
-            pass
-        case 3:             # box_ready
-            # TODO: взять параметры подключения из редиса
 
-            connection_info = {
-                "connection": {
-                    "type": "vnc",
-                    "settings": {
-                        "hostname": "192.168.105.1",
-                        "port": 5900,
-                        "width": 1280,
-                        "height": 720,
-                        "dpi": 96
-                    }
+    if status == 3:
+        # TODO: взять параметры подключения из редиса
+        connection = await redis.hmget(redis_key, [
+            "ip",
+            "port",
+            "protocol",
+        ]);
+        connection_info = {
+            "connection": {
+                "type": "vnc",
+                "settings": {
+                    "hostname": connection[0],
+                    "port": connection[1],
+                    "width": 1280,
+                    "height": 720,
+                    "dpi": 96
                 }
             }
+        }
 
-            # json_data = json.dumps(connection_info)
-            guacd_token = crypto.encrypt(connection_info)
+        # json_data = json.dumps(connection_info)
+        guacd_token = crypto.encrypt(connection_info)
 
-            return templates.TemplateResponse(
-                name="analysis_page.html",
-                request=request,
-                context={
-                    "analysis": {
-                        "id": analysis_id,
-                        "status": status,
-                        "token": guacd_token  # Передаем зашифрованный токен
-                    }
+        return templates.TemplateResponse(
+            name="analysis_page.html",
+            request=request,
+            context={
+                "analysis": {
+                    "id": analysis_id,
+                    "status": status,
+                    "token": guacd_token  # Передаем зашифрованный токен
                 }
-            )
-
-        case 4 | 5 | 6:     # init_analysis
-            # TODO: загрузка анализа (анализ начинается)
-            pass
-        case 7:             # analysis_pending
-            # TODO: загрузка анализа (анализ идет в данный момент)
-            pass
-        case 8 | 9 | 10:    # analysis_stopping
-            # TODO: загрузка анализа (анализ останавливается)
-            pass
-        case 11 | 0:        # done
-            # TODO: вытягиваем результаты из постгре
-            pass
-
-        case 11:            # analysis ready
-            # пока бессмысленный эндпоинт, нужен будет для ajax и загрузки
-            pass
-        case 0:             # done
-            # пока бессмысленный эндпоинт, нужен будет для ajax и загрузки
-            pass
-        case 20:            # aborted
-            # TODO: страница содержит оператора, который начал, 
-            # причину прекращения анализа тайминг и сообщение о прекращении
-            pass
-        case a:
-            print(f"unsupported status: {a}")
+            }
+        )
     
+    if status in [0, 11]:
+        # пока бессмысленный эндпоинт, нужен будет для ajax и загрузки
+        pass
+
+    
+    status_info = STATUS_MAPPING.get(status, (f"Неизвестный статус: {status}", "Сообщите ответственным, пожалуйста", "gray"))
     analysis_data = {
-        "id": str(analysis_id),
-        "status": current_status, # Передаем числом
-        "sample_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "environment_id": 1,
-        "verdict": "Malicious",
-        "guacd_token": "secret_guacamole_session_token_123",
-        "artifacts": [
-            {"artifact_key": "dropped_exe", "path": "C:\\Temp\\payload.exe"},
-            {"artifact_key": "pcap_log", "path": "/var/log/traffic.pcap"}
-        ] if current_status == 3 else []
+        "id": analysis_id,
+        "status": status,
+        "title": status_info[0],
+        "text": status_info[1],
+        "color": status_info[2]
     }
+    print(analysis_data)
+
+
+    # match status:
+    #     case 1 | 2 :        # init_box
+    #         # TODO: загрузка
+    #         pass
+    #     case 3:             # box_ready
+            
+
+    #     case 4 | 5 | 6:     # init_analysis
+    #         # TODO: загрузка анализа (анализ начинается)
+    #         pass
+    #     case 7:             # analysis_pending
+    #         # TODO: загрузка анализа (анализ идет в данный момент)
+    #         pass
+    #     case 8 | 9 | 10:    # analysis_stopping
+    #         # TODO: загрузка анализа (анализ останавливается)
+    #         pass
+    #     case 11 | 0:        # done
+    #         # TODO: вытягиваем результаты из постгре
+    #         pass
+
+    #     case 11:            # analysis ready
+    #         # пока бессмысленный эндпоинт, нужен будет для ajax и загрузки
+    #         pass
+    #     case 0:             # done
+    #         # пока бессмысленный эндпоинт, нужен будет для ajax и загрузки
+    #         pass
+    #     case 20:            # aborted
+    #         # TODO: страница содержит оператора, который начал, 
+    #         # причину прекращения анализа тайминг и сообщение о прекращении
+    #         pass
+    #     case a:
+    #         print(f"unsupported status: {a}")
+    
+    # analysis_data = {
+    #     "id": str(analysis_id),
+    #     "status": current_status, # Передаем числом
+    #     "sample_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    #     "environment_id": 1,
+    #     "verdict": "Malicious",
+    #     "guacd_token": "secret_guacamole_session_token_123",
+    #     "artifacts": [
+    #         {"artifact_key": "dropped_exe", "path": "C:\\Temp\\payload.exe"},
+    #         {"artifact_key": "pcap_log", "path": "/var/log/traffic.pcap"}
+    #     ] if current_status == 3 else []
+    # }
 
     return templates.TemplateResponse(
         request=request,
@@ -469,7 +627,67 @@ async def analysis_results(
     # return response
     
     # Страница результатов конкретного UUID
-    return HTMLResponse(f"<h1>Результаты для анализа с UUID: {task_uuid}</h1><a href='/analysis'>Назад к таблице</a>")
+
+@app.post("/analysis/{analysis_id}/stop")
+async def stop_analysis(
+    request: Request,
+    analysis_id: str,
+    session_id: Annotated[str, Depends(verify_session)],
+    redis: aioredis.Redis = Depends(get_redis),
+    conn = Depends(get_postgres)
+):
+    try:
+        analysis_uuid = uuid.UUID(analysis_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid UUID format"
+        )
+
+    redis_key = f"analysis:{analysis_id}"
+    
+    analysis_status = await redis.hget(name=redis_key, key="status")
+    
+    if analysis_status is None:
+        row = await conn.fetchrow(
+            "SELECT status FROM analyses WHERE id = $1 LIMIT 1",
+            analysis_uuid
+        )
+        if not row:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Analysis not found"
+            )
+        analysis_status = int(row["status"])
+    else:
+        analysis_status = int(analysis_status)
+
+    if analysis_status != 3:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Can only stop analyses with status 'running'(3), found: {analysis_status}"
+        )
+
+    # TODO: Тут отправка эвента/паблишинг в Кору (оркестратор) для реальной остановки контейнера
+    # await redis.publish("to_core", analysis_id)
+
+    await redis.hset(name=redis_key, mapping={"status": "4"})
+    await redis.publish(TO_CORE_PUBSUB, analysis_id)
+
+    await conn.execute(
+        """
+        UPDATE analyses 
+        SET status = $1, reason_stop = $2, time_ends = NOW() 
+        WHERE id = $3
+        """,
+        4, 'user_interrupt', analysis_uuid
+    )
+
+    return RedirectResponse(
+        url=f"/analysis/{analysis_id}",
+        status_code=status.HTTP_303_SEE_OTHER
+    )
+
 
 @app.get("/logoff")
 async def logoff(
@@ -489,8 +707,6 @@ async def logoff(
 
 @app.websocket("/ws/tunnel")
 async def guacamole_tunnel(websocket: WebSocket):
-    # Инициализируем высокоуровневое соединение guapy
-    # connection_id можно передавать статичный или генерировать uuid
     CLIENT_OPTIONS = ClientOptions(
         crypt=CryptConfig(
             cypher="AES-256-CBC",
@@ -509,4 +725,18 @@ async def guacamole_tunnel(websocket: WebSocket):
         # расшифрует его, подключится к guacd и свяжет потоки.
         await connection.handle_connection()
     except Exception as e:
-        print(f"Ошибка в туннеле Guacamole: {e}")
+        print(f"Ошибка в туннеле guacd: {e}")
+
+
+@app.get("/guac-fullscreen", response_class=HTMLResponse)
+async def guac_fullscreen(
+    request: Request, 
+    token: str = Query(..., description="Токен авторизации для туннеля Guacamole")
+):
+    
+    return templates.TemplateResponse(
+        name="guacd.html",
+        request=request, 
+        context={
+            "analysis": {"token": token}  
+        })

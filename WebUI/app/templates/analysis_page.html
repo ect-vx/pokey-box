@@ -29,7 +29,7 @@
     <title>Управление анализом | pokey-box</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     
-    {% if analysis.status in [0, 2] %}
+    {% if analysis.status in [1, 2, 4, 5, 6, 7, 8, 9, 10] %}
     <meta http-equiv="refresh" content="5">
     {% endif %}
 </head>
@@ -40,197 +40,107 @@
             <span class="text-xl font-bold tracking-wide text-blue-400">pokey-box <span class="text-xs text-gray-500">{{ version }}</span></span>
             <span class="text-sm bg-gray-700 text-gray-300 px-3 py-1 rounded-md border border-gray-600">ID: {{ analysis.id }}</span>
         </div>
-        <a href="/analysis" class="bg-gray-700 hover:bg-gray-600 text-sm font-medium px-4 py-2 rounded-lg transition">
-            Вернуться
-        </a>
+        
+        <div class="flex items-center space-x-2">
+            {% if analysis.status == 3 %}
+            <form action="/analysis/{{ analysis.id }}/stop" method="POST" class="m-0">
+                <button type="submit" class="bg-red-700 hover:bg-red-600 text-sm font-medium px-4 py-2 rounded-lg transition text-white">
+                    Остановить анализ
+                </button>
+            </form>
+            {% endif %}
+            <a href="/analysis" class="bg-gray-700 hover:bg-gray-600 text-sm font-medium px-4 py-2 rounded-lg transition">
+                Вернуться
+            </a>
+            
+        </div>
     </header>
 
-    <main class="flex-1 p-6 flex flex-col justify-center items-center overflow-hidden max-w-7xl w-full mx-auto">
+    <main class="flex-1 p-9 flex flex-col justify-center items-center overflow-hidden max-w-8xl w-full mx-auto">
         
         {% if analysis.status == 3 %}
         <div class="flex-1 relative w-full h-full overflow-hidden">
-            <div id="guac-display" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #0000; overflow: hidden;">
-                <div id="guac-loader" class="rounded-xl border border-gray-700 absolute inset-0 flex flex-col items-center justify-center text-center text-gray-500 text-sm bg-black/50 z-10">
-                    <p class="mb-2">🔌 Подключение к WebSocket guacd...</p>
-                    <p class="text-xs font-mono bg-gray-900 p-2 rounded border border-gray-800 text-green-400">ws://{{ request.url.host }}/ws/tunnel?token=...
-                        </p>
-                </div>
-            </div>
+            <iframe id="guac-iframe" src="/guac-fullscreen?token={{ analysis.token }}" class="w-full h-full border-0"></iframe>
         </div>
-        <script src="https://cdn.jsdelivr.net/npm/@cyolosecurity/guacamole-common-js@1.5.5-1/dist/guacamole-common.min.js"></script>
-
-        <script>
-            document.addEventListener("DOMContentLoaded", function () {
-            const token = "{{ analysis.token }}"; 
-            const displayContainer = document.getElementById('guac-display');
-
-            const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-            const wsUrl = `${protocol}//${window.location.host}/ws/tunnel`;
-
-            const tunnel = new Guacamole.WebSocketTunnel(wsUrl);
-            const client = new Guacamole.Client(tunnel);
-
-            const element = client.getDisplay().getElement();   
-            displayContainer.appendChild(element);
-            const display = client.getDisplay();
-
-            const BASE_WIDTH = 1280;
-            const BASE_HEIGHT = 800; 
-            client.sendSize(BASE_WIDTH, BASE_HEIGHT);
-
-            function resizeDisplay() {
-                const containerWidth = displayContainer.clientWidth;
-                const containerHeight = displayContainer.clientHeight;
-
-                if (containerWidth === 0 || containerHeight === 0) return;
-
-                const scale = Math.min(
-                    containerWidth / BASE_WIDTH,
-                    containerHeight / BASE_HEIGHT
-                );
-
-                display.scale(scale);
-
-                const realElement = display.getElement();
-                if (realElement) {
-                    const offsetLeft = Math.max(0, (containerWidth - BASE_WIDTH * scale) / 2);
-                    const offsetTop = Math.max(0, (containerHeight - BASE_HEIGHT * scale) / 2);
-                    
-                    realElement.style.position = 'absolute';
-                    realElement.style.left = `${offsetLeft}px`;
-                    realElement.style.top = `${offsetTop}px`;
-                }
-            }
-
-            window.addEventListener('resize', resizeDisplay);
-
-            client.onstatechange = function(state) {
-                if (state === 3) {
-                    const loader = document.getElementById('guac-loader');
-                    if (loader) loader.remove();
-                    
-                    setTimeout(resizeDisplay, 50);
-                }
-            };
-
-            const mouse = new Guacamole.Mouse(element);
-            mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = function(mouseState) {
-                client.sendMouseState(mouseState);
-            };
-
-            const keyboard = new Guacamole.Keyboard(document);
-            keyboard.onkeydown = function (keysym) { client.sendKeyEvent(1, keysym); };
-            keyboard.onkeyup = function (keysym) { client.sendKeyEvent(0, keysym); };
-
-            client.connect(`token=${encodeURIComponent(token)}`);
-        });
-        </script>
-
-
-
-
-
-
-        <!-- <div class="w-full h-full flex flex-col space-y-4">
-            <div class="flex justify-between items-center bg-gray-800 p-4 rounded-xl border border-gray-700">
-                <div>
-                    <h3 class="font-semibold text-white">Интерактивный анализ малвари [Статус 1]</h3>
-                    <p class="text-xs text-gray-400">Хэш образца: <span class="font-mono text-blue-300">{{ analysis.sample_hash }}</span></p>
-                </div>
-                <form action="/analysis/{{ analysis.id }}/stop" method="POST">
-                    <button type="submit" class="bg-red-600 hover:bg-red-700 text-white font-semibold px-5 py-2 rounded-xl transition shadow-md cursor-pointer text-sm">
-                        🛑 Завершить анализ
-                    </button>
-                </form>
-            </div>
+        {% else %}
+        <div class="w-full max-w-2xl mx-auto flex flex-col items-center justify-center p-8 text-center bg-gray-900 rounded-xl border border-gray-800 shadow-inner min-h-[400px]">
             
-            <div class="flex-1 bg-black rounded-xl border border-gray-700 relative overflow-hidden flex items-center justify-center">
-                <div id="guac-display" class="w-full h-full bg-gray-950 flex items-center justify-center">
-                    <div id="guac-loader" class="text-center text-gray-500 text-sm">
-                        <p class="mb-2">🔌 Подключение к WebSocket guacd...</p>
-                        <p class="text-xs font-mono bg-gray-900 p-2 rounded border border-gray-800 text-green-400">
-                            ws://{{ request.url.host }}/ws/tunnel?token=...
-                        </p>
-                    </div>
+            {% if analysis.status in [1, 2, 4, 5, 6, 7, 8, 9, 10] or analysis.status in ['1', '2', '4', '5', '6', '7', '8', '9', '10'] %}
+            <div class="space-y-4 w-full">
+                
+                <div class="w-12 h-12 border-4 rounded-full animate-spin mx-auto 
+                    {% if analysis.color == 'blue' %}border-blue-500/20 border-t-blue-500
+                    {% elif analysis.color == 'amber' %}border-amber-500/20 border-t-amber-500
+                    {% elif analysis.color == 'green' %}border-green-500/20 border-t-green-500
+                    {% else %}border-red-500/20 border-t-red-500{% endif %}">
                 </div>
+
+                <h3 class="text-lg font-medium {% if analysis.status|int == 7 %}text-green-400 animate-pulse{% else %}text-gray-200{% endif %}">
+                    {{ analysis.title }}
+                </h3>
+                
+                <p class="text-sm text-gray-500 max-w-xs mx-auto">
+                    {{ analysis.text }}
+                </p>
+
+                <span class="inline-block text-xs font-mono px-2 py-1 bg-gray-800 rounded border border-gray-700
+                    {% if analysis.color == 'blue' %}text-blue-400
+                    {% elif analysis.color == 'amber' %}text-amber-400
+                    {% elif analysis.color == 'green' %}text-green-400
+                    {% else %}text-red-400{% endif %}">
+                    status: {{ analysis.status }}
+                </span>
             </div>
+
+            {% elif analysis.status in [11, 0, '11', '0'] %}
+            <div class="w-full border border-dashed border-gray-700 rounded-xl p-6 bg-gray-950 text-left">
+                <div class="flex items-center space-x-3 mb-4">
+                    <span class="flex h-3 w-3 relative">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span>
+                    </span>
+                    <h3 class="text-base font-semibold text-indigo-400 font-mono">[TODO] Результаты анализа</h3>
+                </div>
+                <p class="text-sm text-gray-400 mb-4">Анализ успешно завершен (статус: <span class="font-mono text-gray-200">{{ analysis.status }}</span>).</p>
+            </div>
+
+            {% elif analysis.status in [20, '20'] %}
+            <div class="w-full bg-red-950/20 border border-red-900/50 rounded-xl p-6 text-left space-y-4">
+                <h3 class="text-lg font-medium text-red-400">Анализ прерван оператором</h3>
+                <p class="text-sm text-gray-300">Причина: {{ analysis.reason_stop or "Не указана" }}</p>
+            </div>
+
+            {% else %}
+            <div class="space-y-2 text-red-400">
+                <p class="text-lg font-medium">⚠️ Ошибка состояния</p>
+                <p class="text-sm text-gray-500">Обнаружен неподдерживаемый статус: <span class="font-mono text-red-300">{{ analysis.status }}</span></p>
+            </div>
+            {% endif %}
+
         </div>
-
-
-        <script>
-            document.addEventListener("DOMContentLoaded", function () {
-                const token = "{{ analysis.token }}"; 
-                
-                if (!token) {
-                    document.getElementById('guac-loader').innerHTML = '<p class="text-red-500">Ошибка: Токен соединения не найден</p>';
-                    return;
-                }
-
-                const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-                const wsUrl = `${protocol}//${window.location.host}/ws/tunnel`;
-                
-                const tunnel = new Guacamole.WebSocketTunnel(wsUrl);
-                const client = new Guacamole.Client(tunnel);
-
-                const displayContainer = document.getElementById('guac-display');
-
-                // Когда соединение успешно пошло — убираем текст загрузки и крепим Canvas
-                client.onstatechange = function(state) {
-                    if (state === 3) { 
-                        const loader = document.getElementById('guac-loader');
-                        if (loader) loader.remove();
-                    }
-                };
-
-
-                
-
-                const element = client.getDisplay().getElement();
-                displayContainer.appendChild(element);
-
-                // СРАЗУ ЖЕ говорим бэкенду, какой у нас размер контейнера
-                client.sendSize(displayContainer.clientWidth, displayContainer.clientHeight);
-
-                // 4. Передача событий мыши
-                const mouse = new Guacamole.Mouse(element);
-                mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = function(mouseState) {
-                    // Важно: корректируем координаты мыши с учетом масштаба canvas
-                    const display = client.getDisplay();
-                    if (display.getWidth() > 0 && element.clientWidth > 0) {
-                        mouseState.x = mouseState.x * display.getWidth() / element.clientWidth;
-                        mouseState.y = mouseState.y * display.getHeight() / element.clientHeight;
-                    }
-                    client.sendMouseState(mouseState);
-                };
-
-                // 5. Передача клавиатуры (нажатие клавиш внутрь VNC)
-                const keyboard = new Guacamole.Keyboard(document);
-                keyboard.onkeydown = function (keysym) {
-                    client.sendKeyEvent(1, keysym);
-                };
-                keyboard.onkeyup = function (keysym) {
-                    client.sendKeyEvent(0, keysym);
-                };
-
-                // 6. Коннектимся
-                client.connect(`token=${encodeURIComponent(token)}`);
-
-                // Логика авто-подгона размера экрана при ресайзе окна
-                window.onresize = function() {
-                    client.sendSize(displayContainer.clientWidth, displayContainer.clientHeight);
-                };
-
-                // Корректно закрываем сессию, если пользователь ушел со страницы
-                window.onunload = function() {
-                    client.disconnect();
-                };
-            });
-        </script> -->
-
-        {% else  %}
-        {{ analysis.status }}
         {% endif %}
 
     </main>
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            const iframe = document.getElementById('guac-iframe');
+            if (!iframe) return;
+
+            // Функция, которая намертво вбивает фокус ввода внутрь айфрейма
+            function forceFocus() {
+                iframe.contentWindow.focus();
+            }
+
+            // 1. Как только айфрейм полностью загрузился — даем фокус
+            iframe.addEventListener('load', function() {
+                // Небольшой таймаут, чтобы внутренний DOM успел инициализироваться
+                setTimeout(forceFocus, 100);
+            });
+
+            // 2. Самый важный костыль: перехватываем клики по контейнеру айфрейма
+            // Если пользователь кликнул по рамке или области вокруг — фокус улетает внутрь
+            iframe.parentElement.addEventListener('mousedown', forceFocus);
+        });
+    </script>
 </body>
 </html>
