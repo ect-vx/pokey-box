@@ -10,6 +10,6 @@ ENV DISPLAY=:99
 EXPOSE 5900
 
 
-CMD ["Xvnc", ":99", "-geometry", "1280x720", "-depth", "8", "-rfbport", "5900", "-alwaysshared", "-deferupdate", "5"]
+CMD ["Xvnc", ":99", "-geometry", "1280x720", "-depth", "24", "-rfbport", "5900", "-alwaysshared", "-deferupdate", "5"]
 
 

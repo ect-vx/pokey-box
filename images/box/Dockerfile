@@ -13,4 +13,5 @@ ENV DISPLAY=:99
 
 COPY ./xorg.conf /etc/X11/xorg.conf
 
-CMD ["sh", "-c", "while [ ! -S /tmp/.X11-unix/X99 ]; do sleep 0.5; done && startxfce4"]
+CMD ["sh", "-c", "while [ ! -S /tmp/.X11-unix/X99 ]; do sleep 0.5; done && exec startxfce4"]
+# CMD ["sh", "-c", "while [ ! -S /tmp/.X11-unix/X99 ]; do sleep 0.5; done && exec dbus-launch --exit-with-session startxfce4"]
