@@ -36,7 +36,7 @@ RUN mkdir -p /home/appuser/.config/autostart
 
 RUN echo '[Desktop Entry]\n\
 Type=Application\n\
-Exec=sh -c "chromium --no-sandbox --disable-gpu --start-maximized --password-store=basic \$START_URL"\n\
+Exec=sh -c "chromium --no-sandbox --disable-gpu --start-maximized \$START_URL"\n\
 Hidden=false\n\
 NoDisplay=false\n\
 X-GNOME-Autostart-enabled=true\n\
